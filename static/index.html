@@ -1,9 +1,216 @@
+<!DOCTYPE html>
 <html>
     <head>
-        <title>VS Code Rocks!</title>
+        <title>VS Code Text-to-Speech</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                max-width: 800px;
+                margin: 0 auto;
+                padding: 20px;
+                line-height: 1.6;
+            }
+            h1 {
+                color: #4285f4;
+                margin-bottom: 20px;
+            }
+            .container {
+                margin-top: 30px;
+            }
+            textarea {
+                width: 100%;
+                min-height: 100px;
+                padding: 10px;
+                margin-bottom: 15px;
+                border-radius: 4px;
+                border: 1px solid #ccc;
+            }
+            .button-group {
+                display: flex;
+                gap: 10px;
+                margin-bottom: 20px;
+            }
+            button {
+                padding: 10px 15px;
+                background-color: #4285f4;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 16px;
+            }
+            button:hover {
+                background-color: #357ae8;
+            }
+            button:disabled {
+                background-color: #cccccc;
+                cursor: not-allowed;
+            }
+            #listen-button {
+                background-color: #34a853;
+                display: none;
+            }
+            #listen-button:hover {
+                background-color: #2d9549;
+            }
+            #audio-player {
+                margin-top: 15px;
+                width: 100%;
+                display: none;
+            }
+            #status {
+                margin-top: 10px;
+                padding: 10px;
+                border-radius: 4px;
+            }
+            .info {
+                color: #4285f4;
+            }
+            .error {
+                color: #ea4335;
+                background-color: #ffebee;
+                padding: 10px;
+                border-radius: 4px;
+            }
+            .success {
+                color: #34a853;
+                background-color: #e8f5e9;
+                padding: 10px;
+                border-radius: 4px;
+            }
+            .spinner {
+                display: inline-block;
+                width: 20px;
+                height: 20px;
+                margin-right: 10px;
+                border: 3px solid rgba(0, 0, 0, 0.1);
+                border-radius: 50%;
+                border-top-color: #4285f4;
+                animation: spin 1s ease-in-out infinite;
+                vertical-align: middle;
+            }
+            @keyframes spin {
+                to { transform: rotate(360deg); }
+            }
+        </style>
     </head>
     <body>
-        <h1>VS Code can do that?</h1>
-        <p>Yes it can!</p>
+        <h1>VS Code Text-to-Speech</h1>
+        <p>Enter text below to convert it to speech using Python's TTS capabilities</p>
+        
+        <div class="container">
+            <textarea id="input-text" placeholder="Enter text to convert to speech..."></textarea>
+            
+            <div class="button-group">
+                <button id="speak-button">Speak</button>
+                <button id="listen-button">Listen</button>
+            </div>
+            
+            <div id="status"></div>
+            
+            <audio id="audio-player" controls>
+                <source id="audio-source" src="" type="audio/wav">
+                Your browser does not support the audio element.
+            </audio>
+        </div>
+        
+        <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+        <script>
+            $(document).ready(function() {
+                let currentAudioFile = null;
+                const $speakButton = $('#speak-button');
+                const $listenButton = $('#listen-button');
+                const $inputText = $('#input-text');
+                const $status = $('#status');
+                const $audioPlayer = $('#audio-player');
+                const $audioSource = $('#audio-source');
+                
+                $speakButton.on('click', function() {
+                    const text = $inputText.val().trim();
+                    
+                    if (!text) {
+                        showStatus('Please enter some text to convert to speech.', 'error');
+                        return;
+                    }
+                    
+                    // Disable the speak button and show loading status
+                    $speakButton.prop('disabled', true);
+                    $listenButton.hide();
+                    $audioPlayer.hide();
+                    
+                    // Create a loading animation in the status area
+                    let dots = '';
+                    const loadingInterval = setInterval(function() {
+                        dots = (dots.length >= 3) ? '' : dots + '.';
+                        showStatus(`Generating speech, please wait${dots}`, 'info');
+                    }, 500);
+                    
+                    // Send the text to the server for TTS processing
+                    $.ajax({
+                        url: '/generate-speech',
+                        type: 'POST',
+                        contentType: 'application/json',
+                        data: JSON.stringify({ text: text }),
+                        timeout: 120000, // 2-minute timeout for long operations
+                        success: function(response) {
+                            // Clear the loading animation
+                            clearInterval(loadingInterval);
+                            
+                            // Update the audio source and show the listen button
+                            currentAudioFile = response.filename;
+                            $audioSource.attr('src', '/static/' + response.filename);
+                            $audioPlayer.get(0).load(); // Reload the audio player
+                            
+                            $listenButton.show();
+                            showStatus('Speech generated successfully!', 'success');
+                            $speakButton.prop('disabled', false);
+                        },
+                        error: function(xhr, status, error) {
+                            // Clear the loading animation
+                            clearInterval(loadingInterval);
+                            
+                            let errorMsg = 'An error occurred while generating speech.';
+                            
+                            if (status === 'timeout') {
+                                errorMsg = 'The request timed out. The speech generation is taking too long.';
+                            } else if (xhr.responseJSON && xhr.responseJSON.error) {
+                                errorMsg = xhr.responseJSON.error;
+                            }
+                            
+                            showStatus(errorMsg, 'error');
+                            $speakButton.prop('disabled', false);
+                        }
+                    });
+                });
+                
+                $listenButton.on('click', function() {
+                    if (!currentAudioFile) {
+                        showStatus('No audio file available. Generate speech first.', 'error');
+                        return;
+                    }
+                    
+                    // Show the audio player and play the audio
+                    $audioPlayer.show();
+                    $audioPlayer.get(0).play();
+                });
+                
+                function showStatus(message, type) {
+                    // Clear previous content
+                    $status.empty();
+                    
+                    // Add spinner if info type
+                    if (type === 'info') {
+                        $status.append($('<div class="spinner"></div>'));
+                    }
+                    
+                    // Add text
+                    $status.append(document.createTextNode(message));
+                    
+                    // Update class
+                    $status.removeClass('info error success');
+                    $status.addClass(type);
+                }
+            });
+        </script>
     </body>
 </html>
